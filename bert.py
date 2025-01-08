@@ -197,8 +197,7 @@ def main(index):
         dataloader_pin_memory=False,
         lr_scheduler_type="linear",
         metric_for_best_model="f1",
-        no_cuda=True,
-        use_xla=True,
+        no_cuda=True
     )
 
     trainer = Trainer(
