@@ -173,30 +173,30 @@ def main(index):
     test_dataset = preprocess_dataset(dataset["test"])
 
     training_args = TrainingArguments(
-    output_dir="modernbert-base-conll2012_ontonotesv5-english_v4-ner",
-    eval_strategy="epoch",
-    save_strategy="epoch",
-    save_total_limit=1,
-    learning_rate=5e-4,
-    per_device_train_batch_size=32,
-    per_device_eval_batch_size=32,
-    gradient_checkpointing=True,
-    num_train_epochs=3,
-    weight_decay=0.01,
-    logging_dir='./logs',
-    logging_steps=100,
-    load_best_model_at_end=True,
-    bf16=True,
-    gradient_accumulation_steps=1,
-    optim="adamw_hf",  # Changed from "adamw_torch_fused" to "adamw_hf"
-    warmup_ratio=0.1,
-    dataloader_num_workers=0,
-    dataloader_pin_memory=False,
-    lr_scheduler_type="linear",
-    metric_for_best_model="f1",
-    # XLA specific settings
-    no_cuda=True,
-    tpu_metrics_debug=True,
+        output_dir="modernbert-base-conll2012_ontonotesv5-english_v4-ner",
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        save_total_limit=1,
+        learning_rate=5e-4,
+        per_device_train_batch_size=32,
+        per_device_eval_batch_size=32,
+        gradient_checkpointing=True,
+        num_train_epochs=3,
+        weight_decay=0.01,
+        logging_dir='./logs',
+        logging_steps=100,
+        load_best_model_at_end=True,
+        bf16=True,
+        gradient_accumulation_steps=1,
+        optim="adamw_hf",
+        warmup_ratio=0.1,
+        dataloader_num_workers=0,
+        dataloader_pin_memory=False,
+        lr_scheduler_type="linear",
+        metric_for_best_model="f1",
+        no_cuda=True,
+        use_xla=True,
+        use_ipex=False,
 )
     trainer = Trainer(
         model=model,
@@ -245,6 +245,37 @@ def main(index):
         results = predict_ner(sample_sentence)
         print(f"NER results for '{sample_sentence}':")
         print(results)
+
+def main(index):
+    # Get XLA device
+    device = xm.xla_device()
+    print(f"Using device: {device}")
+
+    # ... (rest of your initialization code) ...
+
+    # Disable torch.compile for ModernBERT
+    torch._dynamo.config.suppress_errors = True
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        compute_metrics=compute_metrics,
+    )
+
+    if xm.is_master_ordinal():
+        print("Starting training...")
+    
+    trainer.train()
+
+    if xm.is_master_ordinal():
+        print("Evaluating on test set...")
+        test_results = trainer.evaluate(test_dataset)
+        print(f"Test results: {test_results}")
+        
+        print("Saving the model...")
+        trainer.save_model("./final_model4ep")
 
 if __name__ == "__main__":
     xmp.spawn(main, args=(), nprocs=xm.xrt_world_size())
