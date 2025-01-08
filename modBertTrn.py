@@ -10,7 +10,7 @@ from datasets import load_dataset, Dataset
 import numpy as np
 from seqeval.metrics import accuracy_score, f1_score, precision_score, recall_score
 import os
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 # Check for GPU availability
 device = "xla"
 print(f"Using device: {device}")
