@@ -3,9 +3,8 @@ import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
-
 from transformers import AutoTokenizer, AutoConfig, AutoModelForTokenClassification, TrainingArguments, Trainer
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, ClassLabel
 import numpy as np
 from seqeval.metrics import accuracy_score, f1_score, precision_score, recall_score
 import os
@@ -14,8 +13,6 @@ def main(index):
     # Get XLA device
     device = xm.xla_device()
     print(f"Using device: {device}")
-
-    from datasets import load_dataset, ClassLabel
 
     # Load the dataset
     dataset = load_dataset("conll2012_ontonotesv5", "english_v4")
@@ -67,6 +64,12 @@ def main(index):
     # Load ModernBERT model and tokenizer
     model_name = "answerdotai/ModernBERT-base"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    if xm.is_master_ordinal():
+        print("\nExample with meaningful labels:")
+        print("Original: [0, 0, 0, 0, 0] -> ", [id2label[0], id2label[0], id2label[0], id2label[0], id2label[0]])
+        print("Original: [7, 8] -> ", [id2label[7], id2label[8]])
+        print("Original: [31, 32] -> ", [id2label[31], id2label[32]])
 
     def tokenize_and_align_labels(examples):
         tokenized_inputs = tokenizer(
@@ -196,65 +199,7 @@ def main(index):
         metric_for_best_model="f1",
         no_cuda=True,
         use_xla=True,
-        use_ipex=False,
-)
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        compute_metrics=compute_metrics,
     )
-
-    if xm.is_master_ordinal():
-        print("Starting training...")
-    trainer.train()
-
-    if xm.is_master_ordinal():
-        print("Evaluating on test set...")
-        test_results = trainer.evaluate(test_dataset)
-        print(f"Test results: {test_results}")
-        
-        print("Saving the model...")
-        trainer.save_model("./final_model4ep")
-
-    def predict_ner(sentence):
-        inputs = tokenizer(sentence, return_tensors="pt", padding=True, truncation=True, max_length=512)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = model(**inputs)
-        predictions = torch.argmax(outputs.logits, dim=2)
-        predictions = xm.mesh_reduce('predictions', predictions, lambda x: x[0])
-        predicted_labels = [id2label[p.item()] for p in predictions[0] if p.item() != -100]
-        tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
-        word_ids = inputs.word_ids()
-        
-        result = []
-        for token, label, word_id in zip(tokens, predicted_labels, word_ids):
-            if word_id is not None:
-                if token.startswith("##"):
-                    result[-1][0] += token[2:]
-                else:
-                    result.append([token, label])
-        
-        return result
-
-    if xm.is_master_ordinal():
-        # Example usage
-        sample_sentence = "Apple is looking at buying U.K. startup for \$1 billion"
-        results = predict_ner(sample_sentence)
-        print(f"NER results for '{sample_sentence}':")
-        print(results)
-
-def main(index):
-    # Get XLA device
-    device = xm.xla_device()
-    print(f"Using device: {device}")
-
-    # ... (rest of your initialization code) ...
-
-    # Disable torch.compile for ModernBERT
-    torch._dynamo.config.suppress_errors = True
 
     trainer = Trainer(
         model=model,
@@ -277,5 +222,34 @@ def main(index):
         print("Saving the model...")
         trainer.save_model("./final_model4ep")
 
+        # Function to make predictions on new sentences
+        def predict_ner(sentence):
+            inputs = tokenizer(sentence, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = model(**inputs)
+            predictions = torch.argmax(outputs.logits, dim=2)
+            predictions = xm.mesh_reduce('predictions', predictions, lambda x: x[0])
+            predicted_labels = [id2label[p.item()] for p in predictions[0] if p.item() != -100]
+            tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+            word_ids = inputs.word_ids()
+            
+            result = []
+            for token, label, word_id in zip(tokens, predicted_labels, word_ids):
+                if word_id is not None:
+                    if token.startswith("##"):
+                        result[-1][0] += token[2:]
+                    else:
+                        result.append([token, label])
+            
+            return result
+
+        # Example usage
+        sample_sentence = "Apple is looking at buying U.K. startup for \$1 billion"
+        results = predict_ner(sample_sentence)
+        print(f"NER results for '{sample_sentence}':")
+        print(results)
+
 if __name__ == "__main__":
-    xmp.spawn(main, args=(), nprocs=xm.xrt_world_size())
+    n_cores = int(os.environ.get('NEURON_RT_NUM_CORES', 32))
+    xmp.spawn(main, args=(), nprocs=n_cores)
