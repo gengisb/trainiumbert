@@ -173,32 +173,31 @@ def main(index):
     test_dataset = preprocess_dataset(dataset["test"])
 
     training_args = TrainingArguments(
-        output_dir="modernbert-base-conll2012_ontonotesv5-english_v4-ner",
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        save_total_limit=1,
-        learning_rate=5e-4,
-        per_device_train_batch_size=32,
-        per_device_eval_batch_size=32,
-        gradient_checkpointing=True,
-        num_train_epochs=3,
-        weight_decay=0.01,
-        logging_dir='./logs',
-        logging_steps=100,
-        load_best_model_at_end=True,
-        bf16=True,
-        gradient_accumulation_steps=1,
-        optim="adamw_torch_fused",
-        warmup_ratio=0.1,
-        dataloader_num_workers=0,
-        dataloader_pin_memory=False,
-        lr_scheduler_type="linear",
-        metric_for_best_model="f1",
-        # XLA specific settings
-        no_cuda=True,
-        tpu_metrics_debug=True,
-    )
-
+    output_dir="modernbert-base-conll2012_ontonotesv5-english_v4-ner",
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    save_total_limit=1,
+    learning_rate=5e-4,
+    per_device_train_batch_size=32,
+    per_device_eval_batch_size=32,
+    gradient_checkpointing=True,
+    num_train_epochs=3,
+    weight_decay=0.01,
+    logging_dir='./logs',
+    logging_steps=100,
+    load_best_model_at_end=True,
+    bf16=True,
+    gradient_accumulation_steps=1,
+    optim="adamw_hf",  # Changed from "adamw_torch_fused" to "adamw_hf"
+    warmup_ratio=0.1,
+    dataloader_num_workers=0,
+    dataloader_pin_memory=False,
+    lr_scheduler_type="linear",
+    metric_for_best_model="f1",
+    # XLA specific settings
+    no_cuda=True,
+    tpu_metrics_debug=True,
+)
     trainer = Trainer(
         model=model,
         args=training_args,
